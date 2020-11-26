@@ -176,6 +176,15 @@
                     </v-layout>
                   </v-flex>
 
+    <v-switch
+      v-model="isHPC"
+    ></v-switch>
+                 <v-btn small round color="#27304c" dark @click="runHPC()" title="Run service" >
+                      RUN
+                    </v-btn>
+
+
+
                   <v-flex xs12 sm12 md12 lg12>
                     <small v-if="!isOutput">* Indicates required field</small>
                     <v-divider ></v-divider>
@@ -384,6 +393,7 @@ import Dialog from '@/components/Dialog.vue'
 import Geocoder from 'ol-geocoder/dist/ol-geocoder.js';
 
 import CONST from "../const";
+import HPC from "../hpc";
 
 export default {
   name: 'Map',
@@ -395,7 +405,10 @@ export default {
     cloudifyURL: CONST.cloudifyURL,
     apacheURL: CONST.apacheURL,
     authHeader: CONST.authHeader,
-    startDialog: true,
+    platformURL: CONST.platformHost,
+    HPCdata: HPC.HPCsetup,
+    startDialog: false,
+    isHPC: true,
     deploymentName: "",
     valid: false,
     day_in_row: "1",
@@ -810,6 +823,150 @@ export default {
       }
 
     },//runService
+    // test(){
+
+    //   var user = 'cloudify'
+    //   var password = 'jLPB6Q5DQ-sQDN' 
+    //   var payload = 'grant_type=password&client_id=admin-cli&username='+user+'&password='+password
+
+    //   this.$http.post(this.platformURL.concat('/auth/realms/euxdat/protocol/openid-connect/token'), 
+    //     payload, {headers: {'Content-Type': 'application/x-www-form-urlencoded'}}).then(response => {
+               
+    //     this.$http.get(this.platformURL.concat('/auth/realms/euxdat/protocol/openid-connect/userinfo'), 
+    //     {headers: {'Authorization': 'Bearer '+response.body.access_token}}).then(response => {
+
+          
+    //       this.showAlert("success", response.statusText);               
+    //       this.runHPC(response.body)
+
+    //     }, response => {
+    //       this.showAlert("error", response.statusText);
+    //     });
+
+    //   }, response => {
+    //     this.showAlert("error", response.statusText);
+    //   });
+    // },
+    //runHPC(HPCdata){
+
+    runHPC(){     
+      var HPCdata = this.HPCdata;
+      // console.log(HPCdata)
+      //this.deploymentName = this.user.preferred_username + '-' + Date.now().toString();
+      this.deploymentName = this.user.preferred_username.slice(2) + '-' + Date.now().toString();
+
+      var HPC = {
+        'blueprint_id': 'agroclimantic_frostdates_pilot',
+        'hpc_base_dir': '$HOME',
+        'hpc_interface_config': {
+          'country_tz': 'Europe/Stuttgart',
+          'infrastructure_interface': 'PBSPRO'
+        },
+        'hpc_interface_credentials': {
+          'host': 'hawk.hww.hlrs.de',
+          'user': HPCdata.hpcCredentials.user, //<hpc_user_name></hpc_user_name>,
+          'password': HPCdata.hpcCredentials.password, //<hpc_user_password></hpc_user_password>,
+          'private_key': HPCdata.hpcCredentials.private_key, //<hpc_user_private_key></hpc_user_private_key>,
+          'private_key_password': HPCdata.hpcCredentials.private_key_password //<hpc_user_private_password></hpc_user_private_password>
+        },
+        'partition_name': 'default', 
+        'job_config_content':
+          '|'.concat(' import os',
+          '\n DAY_IN_ROW = ', this.day_in_row, 
+          '\n START_HOUR_DAY = ', this.start_hour_day, 
+          '\n END_HOUR_DAY = ', this.end_hour_day,
+          '\n FROST_DEGREE = ', this.frost_degree,
+          '\n START_YEAR = ', this.start_year,
+          '\n END_YEAR = ', this.end_year,
+          '\n PROBABILITY = ', this.probability,
+          ' path=os.path.abspath(__file__ + \"/../../\")\n ',  
+          'EXPORT_FOLDER =path + \"/export\"\n ',   
+          'DATA_FOLDER = path + \"/data\"\n ',
+          'START_LON = ', this.polygonBBOX[0].toString(),
+          '\n START_LAT = ', this.polygonBBOX[1].toString(),  
+          '\n END_LON = ', this.polygonBBOX[2].toString(),  
+          '\n END_LAT = ', this.polygonBBOX[3].toString(), 
+          '\n process_id = \"test_frostdatelatlon\"').replace(/\n/g, "\\n").replace(/\"/g, '\\"'),
+        'job_config_pathname': '~/sc3_agroclimatic/frostdates/cloudify_integration/python_code/frostdates_params.py',
+        'monitoring_options': {
+          'reporting_user': this.user.preferred_username, //<frontend_user></frontend_user>
+        },
+        'accounting_options': {
+          'reporting_user': this.user.preferred_username, //<frontend_user></frontend_user>
+        },
+        'data_mover_options': {
+          'workspace': 'ws_agroclimatic', 
+          'create_ws': 'False', 
+          'ws_lifetime': '30',
+          'upload': {
+            'source': './output_concatenated_files.geojson',
+            'target': 'agroclimatic_zones_scenario_outputs/'.concat(this.user.preferred_username, '/frostdates/', this.deploymentName, '.geojson'),
+          },
+          'hpc_target': 'HAWK', 
+          'cloud_target': 'ATOSFR', 
+          'cloud_user': 'euxdat_user',
+          'grid_userkey': HPCdata.gridFTP.grid_userkey,//'|'.concat(HPCdata.grid.userkey), // <gridftp userkey></gridftp userkey>,
+          'grid_usercert': HPCdata.gridFTP.grid_usercert,// '|'.concat(HPCdata.grid.usercert), //<gridftp usercert></gridftp usercert>,
+          'grid_certpass': HPCdata.gridFTP.grid_certpass, //<gridftp userpass></gridftp userpass>
+        }  
+      };
+      console.log(HPC)
+     
+      var url = 'https://cloudify-api-test.test.euxdat.eu/api/v3.1/'.concat("deployments/", this.deploymentName);
+      var headers = {
+        'Authorization': this.authHeader,
+        'Tenant': 'default_tenant'  ,
+        'Content-Type': 'application/json'
+      };
+
+      var self = this
+
+      this.$http.put(url, HPC, {headers}).then(response => {
+        url = this.cloudifyURL.concat("executions");
+        body = {
+          "deployment_id": this.deploymentName,
+          "workflow_id": "install"
+        };
+
+        setTimeout(function(){
+          self.$http.post(url, body, {headers}).then(response => {
+
+            setTimeout(function(){
+              self.getExecutionStatus(response.body.deployment_id);
+            }, 5000);
+              self.showAlert("success", response.statusText);
+          }, response => {
+            self.showAlert("error", response.statusText);
+          });
+        }, 5000);
+        self.showAlert("success", response.statusText);
+        }, response => {
+          self.showAlert("error", response.statusText);
+      });
+
+//     console.log(
+
+//     '|'.concat('import os\n DAY_IN_ROW = ', this.day_in_row, 
+//         '\n START_HOUR_DAY = ', this.start_hour_day, 
+//         '\n END_HOUR_DAY = ', this.end_hour_day,
+//         '\n FROST_DEGREE = ', this.frost_degree,
+//         '\n START_YEAR = ', this.start_year,
+//         '\n END_YEAR = ', this.end_year,
+//         '\n PROBABILITY = ', this.probability,
+//         ' path=os.path.abspath(__file__ + \"/../../\")\n ',  
+//         'EXPORT_FOLDER =path + \"/export\"\n ',   
+//         'DATA_FOLDER = path + \"/data\"\n ',
+//         'START_LON = ', this.polygonBBOX[0].toString(),
+//         '\n START_LAT = ', this.polygonBBOX[1].toString(),  
+//         '\n END_LON = ', this.polygonBBOX[2].toString(),  
+//         '\n END_LAT = ', this.polygonBBOX[3].toString(), 
+//         '\n process_id = \"test_frostdatelatlon\"').replace(/\n/g, "\\n").replace(/\"/g, '\\"')
+
+//     )
+
+      
+      // New cloudify API: https://cloudify-api-test.test.euxdat.eu/ 
+    },
     /**
     * Check the running status, if is "terminated" triggerd getGeojson() method
     *
